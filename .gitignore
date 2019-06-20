@@ -1,5 +1,6 @@
 # Dependencies
 .psci_modules
+.psc-package
 bower_components
 node_modules
 
