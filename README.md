@@ -2,6 +2,10 @@
 
 this repository is a try to solve [this issue](https://github.com/purescript/purescript/issues/3673).
 
+this is a type inference REPL works with a subset of purescript type system + a special type ?
+
+? can exist as a type of a record field. only diffrent of x = { a :: ? } with y = forall ['t] { a :: 't } is unifing x with {} works but unify y with {} return error. 
+
 ## example
 
 ```
