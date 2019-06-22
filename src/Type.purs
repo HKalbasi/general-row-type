@@ -17,13 +17,13 @@ instance showRType :: Show (RType)
     show (RCons s t x) = 
       let
         r1 = case t of
-          Just j -> show j
-          Nothing -> "?"
+          Just j -> s <> " :: " <> show j
+          Nothing -> s <> " ?"
         r2 = case x of
           RCons _ _ _ -> " , " <> show x
           _ -> " " <> show x
       in
-        s <> " :: " <> r1 <> r2
+        r1 <> r2
     show (RVar x) = "| " <> show x
 
 derive instance   eqRType :: Eq   (RType)

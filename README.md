@@ -4,7 +4,7 @@ this repository is a try to solve [this issue](https://github.com/purescript/pur
 
 this is a type inference REPL works with a subset of purescript type system + a special type ?
 
-? can exist as a type of a record field. only diffrent of x = { a :: ? } with y = forall ['t] { a :: 't } is unifing x with {} works but unify y with {} return error. 
+? can exist as a type of a record field. only diffrent of x = { a ? } with y = forall ['t] { a :: 't } is unifing x with {} works but unify y with {} return error. 
 
 ## run
 
@@ -23,7 +23,7 @@ r2: { b :: Bool , a :: Int  }
 > r3 = =b 2 r2
 r3: { b :: Int , a :: Int  }
 > =b
-Forall ['t0,'t1] ( 't0 -> ( { b :: ? | 't1 } -> { b :: 't0 | 't1 } ) )
+Forall ['t0,'t1] ( 't0 -> ( { b ? | 't1 } -> { b :: 't0 | 't1 } ) )
 > .b r3 
 Int
 > .b r1
@@ -32,7 +32,7 @@ can not match
 with
     { a :: Int  }
 > f = \ r =c ( isEqual ( .a r ) ( .b r ) ) r
-f: Forall ['t0] ( { a :: Int , b :: Int , c :: ? | 't0 } -> { c :: Bool , a :: Int , b :: Int | 't0 } )
+f: Forall ['t0] ( { a :: Int , b :: Int , c ? | 't0 } -> { c :: Bool , a :: Int , b :: Int | 't0 } )
 > f r3
 { c :: Bool , a :: Int , b :: Int  }
 > f r2
@@ -42,7 +42,7 @@ with
     Bool
 > f r1
 can not match
-    { b :: Int , c :: ? | 't1 }
+    { b :: Int , c ? | 't1 }
 with
     {  }
 > compose = \ f ( \ g ( \ x f ( g x ) ) )
@@ -59,17 +59,17 @@ with
 > compose g f
 ( Int -> Bool )
 > compose =a =b
-Forall ['t0,'t1,'t2] ( 't0 -> ( { a :: ? | 't1 } -> { a :: ( { b :: ? | 't2 } -> { b :: 't0 | 't2 } ) | 't1 } ) )
+Forall ['t0,'t1,'t2] ( 't0 -> ( { a ? | 't1 } -> { a :: ( { b ? | 't2 } -> { b :: 't0 | 't2 } ) | 't1 } ) )
 > compose ( =a 2 ) ( =b true )
-Forall ['t0] ( { b :: ? , a :: ? | 't0 } -> { a :: Int , b :: Bool | 't0 } )
+Forall ['t0] ( { b ? , a ? | 't0 } -> { a :: Int , b :: Bool | 't0 } )
 > addAB = compose ( =a 2 ) ( =b true )
-addAB: Forall ['t0] ( { b :: ? , a :: ? | 't0 } -> { a :: Int , b :: Bool | 't0 } )
+addAB: Forall ['t0] ( { b ? , a ? | 't0 } -> { a :: Int , b :: Bool | 't0 } )
 > addAB {}
 { a :: Int , b :: Bool  }
 > addAB ( =z ( \ x x ) {} )
 Forall ['t0] { a :: Int , b :: Bool , z :: ( 't0 -> 't0 )  }
 > writeABtoC = \ r =c ( ( .a r ) ( .b r ) ) r
-writeABtoC: Forall ['t0,'t1,'t2] ( { a :: ( 't0 -> 't1 ) , b :: 't0 , c :: ? | 't2 } -> { c :: 't1 , a :: ( 't0 -> 't1 ) , b :: 't0 | 't2 } )
+writeABtoC: Forall ['t0,'t1,'t2] ( { a :: ( 't0 -> 't1 ) , b :: 't0 , c ? | 't2 } -> { c :: 't1 , a :: ( 't0 -> 't1 ) , b :: 't0 | 't2 } )
 ```
 
 ## grammar
