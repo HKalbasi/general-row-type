@@ -24,6 +24,10 @@ r2: { b :: Bool , a :: Int  }
 r3: { b :: Int , a :: Int  }
 > =b
 Forall ['t0,'t1] ( 't0 -> ( { b ? | 't1 } -> { b :: 't0 | 't1 } ) )
+> -a
+Forall ['t0] ( { a ? | 't0 } -> { | 't0 } )
+> r4 = -a r2
+r4: { b :: Int  }
 > .b r3 
 Int
 > .b r1
