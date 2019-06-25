@@ -1,7 +1,5 @@
 module Infer where
 
-import Prelude (class Show,show,(<>),($),map,(<<<),bind,discard,pure,(==),otherwise,class Semigroup,(+))
-
 import Control.Monad.Error.Class (try)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.State (State, evalState, get, put)
@@ -15,6 +13,7 @@ import Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Data.Tuple as Tuple
+import Prelude (class Show, show, (<>), ($), map, (<<<), bind, discard, pure, (==), otherwise, class Semigroup, (+))
 import Syntax (Binop(..), Expr(..), Lit(..), Recop(..), Var)
 import Type (FST(..), RType(..), Scheme(..), TVar(..), Type(..), typeBool, typeInt)
 
@@ -237,6 +236,13 @@ fresh = do
   pure $ TVar v
 
 data Vst = IsV | IsRV | IsFV | NoInfo | Both
+instance showVst :: Show Vst where
+  show Both = "Both"
+  show IsV = "IsV"
+  show IsRV = "IsRV"
+  show IsFV = "IsFV"
+  show NoInfo = "NoInfo"
+
 instance semigroupVst :: Semigroup Vst where
   append NoInfo x = x
   append x NoInfo = x
@@ -251,22 +257,26 @@ instance semigroupVst :: Semigroup Vst where
   append x _      = x
 
 decideR :: TVar -> RType -> Vst
-decideR v t =  
-    case t of
+decideR v t = res 
+  where  
+    res = case t of
       RNil   -> NoInfo
       RVar qv -> if qv == v then IsRV else NoInfo
       RCons l Absent y -> decideR v y 
       RCons l (Present z) y -> decideT v z <> decideR v y
-      RCons l (FVar z) y -> IsFV <> decideR v y
+      RCons l (FVar z) y -> ( if v == z then IsFV else NoInfo ) <> decideR v y
+
 decideT :: TVar -> Type -> Vst
-decideT v t = case t of
-  TCon _ -> NoInfo
-  TVar qv -> if qv == v then IsV else NoInfo
-  TArr x y -> decideT v x <> decideT v y
-  TRec x -> decideR v x
+decideT v t = res
+  where 
+    res = case t of
+      TCon _ -> NoInfo
+      TVar qv -> if qv == v then IsV else NoInfo
+      TArr x y -> decideT v x <> decideT v y
+      TRec x -> decideR v x
 
 
-instantiate ::  Scheme -> Infer Type
+instantiate :: Scheme -> Infer Type
 instantiate (Forall as t) = 
   let    
     trf :: TVar -> Infer (EitFTR)
