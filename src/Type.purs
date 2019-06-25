@@ -2,23 +2,26 @@ module Type where
 
 import Prelude
 
-import Data.Maybe (Maybe(..))
-
 newtype TVar = TV String
 derive instance eqTVar :: Eq (TVar)
 derive instance ordTVar :: Ord (TVar)
 instance showTVar :: Show (TVar)
   where show (TV x) = "'" <> x
 
-data RType = RNil | RCons String (Maybe Type) RType | RVar TVar
+data FST = Absent | Present Type | FVar TVar
+derive instance   eqFST :: Eq   (FST)
+derive instance  ordFST :: Ord  (FST)
+
+data RType = RNil | RCons String FST RType | RVar TVar
 instance showRType :: Show (RType)
   where 
     show RNil = ""
     show (RCons s t x) = 
       let
         r1 = case t of
-          Just j -> s <> " :: " <> show j
-          Nothing -> s <> " ?"
+          Present j -> s <> " :: " <> show j
+          Absent -> "Absent " <> s
+          FVar j -> s <> "?" <> show j
         r2 = case x of
           RCons _ _ _ -> " , " <> show x
           _ -> " " <> show x
