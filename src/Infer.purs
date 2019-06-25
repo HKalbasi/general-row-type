@@ -1,6 +1,6 @@
 module Infer where
 
-import Prelude
+import Prelude (class Show,show,(<>),($),map,(<<<),bind,discard,pure,(==),otherwise,class Semigroup,(+))
 
 import Control.Monad.Error.Class (try)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
@@ -10,13 +10,13 @@ import Data.Either (Either(..))
 import Data.Foldable (foldr)
 import Data.List as List
 import Data.Map as Map
-import Data.Maybe (Maybe(..), maybe)
+import Data.Maybe (Maybe(..))
 import Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Data.Tuple as Tuple
 import Syntax (Binop(..), Expr(..), Lit(..), Recop(..), Var)
-import Type (RType(..), Scheme(..), TVar(..), Type(..), typeBool, typeInt)
+import Type (FST(..), RType(..), Scheme(..), TVar(..), Type(..), typeBool, typeInt)
 
 newtype TypeEnv = TypeEnv (Map.Map Var Scheme)
 
@@ -35,8 +35,10 @@ instance showTypeError :: Show TypeError where
   show (RowMono v t) = "Type variable " <> show v <>
     " is mono and row at the same time in:\n    " <> show t
 
+data EitFTR = Ect Type | Ecf FST | Ecr RType
+
 type Infer = ExceptT TypeError (State Unique)
-type Subst = Map.Map TVar (Either RType Type)
+type Subst = Map.Map TVar (EitFTR)
 
 runInfer :: Infer (Tuple Subst Type) -> Either TypeError Scheme
 runInfer m = case evalState (runExceptT m) initUnique of
@@ -63,25 +65,36 @@ class Substitutable a where
   apply :: Subst -> a -> a
   ftv   :: a -> Set.Set TVar
 
+instance substFST :: Substitutable FST where
+  apply s Absent = Absent
+  apply s (Present t) = Present $ apply s t
+  apply s t@(FVar a)       = case Map.lookup a s of
+    Nothing        -> t
+    Just (Ecf x)  -> x
+    Just (_) -> FVar $ TV "there is some problem"
+  
+  ftv Absent = Set.empty
+  ftv (Present t) = ftv t
+  ftv (FVar a) = Set.singleton a
+
 instance substRType :: Substitutable RType where
   apply s RNil           = RNil
-  apply s (RCons l t rm) = RCons l (apply s <$> t) (apply s rm)
+  apply s (RCons l t rm) = RCons l (apply s t) (apply s rm)
   apply s t@(RVar a)       = case Map.lookup a s of
-    Just (Right _) -> RVar $ TV "there is some problem"
     Nothing        -> t
-    Just (Left x)  -> x
-
+    Just (Ecr x)  -> x
+    Just (_) -> RVar $ TV "there is some problem"
+    
   ftv RNil       = Set.empty
-  ftv (RCons l (Just t) rm) = ftv t `Set.union` ftv rm
-  ftv (RCons l (Nothing) rm) = ftv rm
+  ftv (RCons l t rm) = ftv t `Set.union` ftv rm
   ftv (RVar a) = Set.singleton a
 
 instance substType :: Substitutable Type where
   apply _ (TCon a)       = TCon a
   apply s t@(TVar a)     = case Map.lookup a s of
-    Just (Left _)  -> TVar $ TV "there is some problem"
-    Nothing        -> t
-    Just (Right x) -> x
+    Nothing -> t
+    Just (Ect x)  -> x
+    Just (_) -> TVar $ TV "there is some problem"
   apply s (TArr t1 t2) = apply s t1 `TArr` apply s t2
   apply s (TRec x) = TRec (apply s x) 
 
@@ -99,9 +112,14 @@ instance substArray :: Substitutable a => Substitutable (Array a) where
   apply = map <<< apply
   ftv   = foldr (Set.union <<< ftv) Set.empty
 
-instance substEither :: (Substitutable a , Substitutable b) => Substitutable (Either a b) where
-  apply = map <<< apply
-  ftv   = foldr (Set.union <<< ftv) Set.empty
+instance substEitFTR :: Substitutable EitFTR where
+  apply s (Ect x) = Ect $ apply s x
+  apply s (Ecf x) = Ecf $ apply s x
+  apply s (Ecr x) = Ecr $ apply s x
+  
+  ftv  (Ect x) = ftv x
+  ftv  (Ecf x) = ftv x
+  ftv  (Ecr x) = ftv x
 
 instance substTypeEnv :: Substitutable TypeEnv where
   apply s (TypeEnv env) =  TypeEnv $ map (apply s) env
@@ -123,10 +141,18 @@ unify (TArr l r) (TArr l' r')  = do
 unify (TVar a) t = bindX a t
 unify t (TVar a) = bindX a t
 unify (TCon a) (TCon b) | a == b = pure nullSubst
-unify t1@(TRec r1) t2@(TRec r2) = result
+unify t1@(TRec abr1) t2@(TRec abr2) = result
   where
     result = 
       let
+        removeAb (RNil) = RNil
+        removeAb r@(RVar _) = r
+        removeAb (RCons l Absent rm) = removeAb rm
+        removeAb (RCons l t rm) = RCons l t $ removeAb rm
+
+        r1 = removeAb abr1
+        r2 = removeAb abr2
+
         er = throwError $ UnificationFail t1 t2
         findLabel l r = case r of
           RNil -> throwError $ UnificationFail t1 t2
@@ -154,18 +180,24 @@ unify t1@(TRec r1) t2@(TRec r2) = result
             case ei of
               Left _ -> case findEndVar r2 of
                 Nothing -> case z1 of
-                  Nothing -> unify (TRec rm1) (TRec r2)
-                  Just _ -> er
+                  Absent -> unify (TRec rm1) (TRec r2)
+                  FVar v -> do
+                    let sa = Map.singleton v (Ecf Absent)
+                    sb <- unify (TRec $ apply sa rm1) (TRec $ apply sa r2)
+                    pure (sb `compose` sa)
+                  Present _ -> er
                 Just v -> do
                   v' <- freshV
-                  let sa = Map.singleton v (Left $ RCons l z1 (RVar v'))
+                  let sa = Map.singleton v (Ecr $ RCons l z1 (RVar v'))
                   let rm2 = replaceEnd r2 (RVar v')
-                  sb <- unify (TRec rm1) (TRec rm2)
+                  sb <- unify (TRec $ apply sa rm1) (TRec $ apply sa rm2)
                   pure (sb `compose` sa)
               Right (Tuple z2 rm2) -> do
                 sa <- case z1,z2 of
-                  Just zm1,Just zm2 -> unify zm1 zm2
-                  _,_ -> pure $ Map.empty
+                  FVar v,x -> bindZ v x
+                  x,FVar v -> bindZ v x
+                  Present zm1,Present zm2 -> unify zm1 zm2
+                  _,_ -> throwError $ UnificationFail t1 t2 --here should not happen
                 sb <- unify (TRec $ apply sa rm1) (TRec $ apply sa rm2)
                 pure $ sb `compose` sa
           _ , _ -> er
@@ -175,13 +207,20 @@ bindX ::  TVar -> Type -> Infer Subst
 bindX a t
   | t == TVar a     = pure nullSubst
   | occursCheck a t = throwError $ InfiniteType a t
-  | otherwise       = pure $ Map.singleton a (Right t)
+  | otherwise       = pure $ Map.singleton a (Ect t)
 
 bindY ::  TVar -> RType -> Infer Subst
 bindY a t
   | t == RVar a     = pure nullSubst
   | occursCheck a t = throwError $ InfiniteType a (TRec t)
-  | otherwise       = pure $ Map.singleton a (Left t)
+  | otherwise       = pure $ Map.singleton a (Ecr t)
+
+bindZ ::  TVar -> FST -> Infer Subst
+bindZ a t
+  | t == FVar a     = pure nullSubst
+  | occursCheck a t = throwError $ InfiniteType a (TRec RNil) --TODO:here is not good
+  | otherwise       = pure $ Map.singleton a (Ecf t)
+
 
 occursCheck ::  forall a. Substitutable a => TVar -> a -> Boolean
 occursCheck a t = a `Set.member` ftv t
@@ -197,7 +236,7 @@ fresh = do
   v <- freshV
   pure $ TVar v
 
-data Vst = IsV | IsRV | NoInfo | Both
+data Vst = IsV | IsRV | IsFV | NoInfo | Both
 instance semigroupVst :: Semigroup Vst where
   append NoInfo x = x
   append x NoInfo = x
@@ -205,6 +244,10 @@ instance semigroupVst :: Semigroup Vst where
   append x Both   = Both
   append IsV IsRV = Both
   append IsRV IsV = Both
+  append IsV IsFV = Both
+  append IsFV IsV = Both
+  append IsFV IsRV = Both
+  append IsRV IsFV = Both
   append x _      = x
 
 decideR :: TVar -> RType -> Vst
@@ -212,8 +255,9 @@ decideR v t =
     case t of
       RNil   -> NoInfo
       RVar qv -> if qv == v then IsRV else NoInfo
-      RCons l x y -> ( maybe NoInfo (\m -> decideT v m) x ) <> decideR v y 
-
+      RCons l Absent y -> decideR v y 
+      RCons l (Present z) y -> decideT v z <> decideR v y
+      RCons l (FVar z) y -> IsFV <> decideR v y
 decideT :: TVar -> Type -> Vst
 decideT v t = case t of
   TCon _ -> NoInfo
@@ -225,13 +269,14 @@ decideT v t = case t of
 instantiate ::  Scheme -> Infer Type
 instantiate (Forall as t) = 
   let    
-    trf :: TVar -> Infer (Either RType Type)
+    trf :: TVar -> Infer (EitFTR)
     trf x = do
       r <- freshV
       case decideT x t of
         Both -> throwError $ RowMono x t
-        IsRV -> pure $ Left $ RVar r
-        _ -> pure $ Right $ TVar r
+        IsRV -> pure $ Ecr $ RVar r
+        IsFV -> pure $ Ecf $ FVar r
+        _ -> pure $ Ect $ TVar r
   in
     do
       as' <- traverse trf as
@@ -266,20 +311,22 @@ infer env ex = case ex of
         SetField -> do
           a <- freshV
           r <- freshV
+          q <- freshV
           pure $ (TArr (TVar a) (TArr 
-            (TRec (RCons s (Nothing) (RVar r))) 
-            (TRec (RCons s (Just $ TVar a) (RVar r) )) ))
+            (TRec (RCons s (FVar q) (RVar r))) 
+            (TRec (RCons s (Present $ TVar a) (RVar r) )) ))
 
         GetField -> do
           a <- freshV
           r <- freshV
-          pure $ (TArr (TRec (RCons s (Just $ TVar a) (RVar r))) (TVar a) )
+          pure $ (TArr (TRec (RCons s (Present $ TVar a) (RVar r))) (TVar a) )
 
         DelField -> do
           a <- freshV
           r <- freshV
+          q <- freshV
           pure $ (TArr 
-            (TRec (RCons s (Nothing) (RVar r))) 
+            (TRec (RCons s (FVar q) (RVar r))) 
             ( TRec $ RVar r ) )
 
 
@@ -359,19 +406,22 @@ normalize (Forall ts body) = Forall (map Tuple.snd ord) (normtype body)
     fv (TArr a b)            = fv a <> fv b
     fv (TCon _)              = []
     fv (TRec RNil)           = []
-    fv (TRec (RCons l (Just t) rm)) = fv t <> fv (TRec rm)
-    fv (TRec (RCons l (Nothing) rm)) = fv (TRec rm)
+    fv (TRec (RCons l (Present t) rm)) = fv t <> fv (TRec rm)
+    fv (TRec (RCons l (Absent) rm)) = fv (TRec rm)
+    fv (TRec (RCons l (FVar a) rm)) = [a] <> fv (TRec rm)
     fv (TRec (RVar a))       = [a] 
 
     normtype (TRec x) = TRec $ f x
       where
+        g a = case Tuple.lookup a ord of
+            Just z -> z
+            Nothing -> TV "type variable not in signature" 
         f (RNil) = RNil
-        f (RCons l (Just t) rm) = RCons l (Just $ normtype t) (f rm)
-        f (RCons l (Nothing) rm) = RCons l (Nothing) (f rm)
-        f (RVar a)   =
-          case Tuple.lookup a ord of
-            Just x -> RVar x
-            Nothing -> RVar $ TV "type variable not in signature"
+        f (RCons l (Present t) rm) = RCons l (Present $ normtype t) (f rm)
+        f (RCons l (Absent) rm) = RCons l (Absent) (f rm)
+        f (RCons l (FVar v) rm) = RCons l (FVar $ g v) (f rm)
+        f (RVar a)   = RVar $ g a
+          
     normtype (TArr a b) = TArr (normtype a) (normtype b)
     normtype (TCon a)   = TCon a
     normtype (TVar a)   =

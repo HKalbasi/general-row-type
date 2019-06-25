@@ -50,7 +50,7 @@ main = do
       Tuple "true" $ Forall [] typeBool,
       Tuple "false" $ Forall [] typeBool,
       Tuple "plus" $ Forall [] (TArr typeInt (TArr typeInt typeInt)),  
-      Tuple "isEqual" $ Forall [] (TArr typeInt (TArr typeInt typeBool)),  
+      Tuple "isEqual" $ Forall [TV "a"] (TArr (TVar $ TV "a") (TArr (TVar $ TV "a") typeBool)),  
       Tuple "and" $ Forall [] (TArr typeBool (TArr typeBool typeBool))
     ]
   interface <- createConsoleInterface noCompletion

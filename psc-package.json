@@ -10,6 +10,7 @@
     "prelude",
     "psci-support",
     "transformers",
-    "tuples"
+    "tuples",
+    "variant"
   ]
 }
