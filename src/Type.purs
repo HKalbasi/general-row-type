@@ -21,7 +21,7 @@ instance showRType :: Show (RType)
         r1 = case t of
           Present j -> s <> " :: " <> show j
           Absent -> "Absent " <> s
-          FVar j -> s <> "?" <> show j
+          FVar j -> s <> " ?" <> show j
         r2 = case x of
           RCons _ _ _ -> " , " <> show x
           _ -> " " <> show x
